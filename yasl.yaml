@@ -468,6 +468,7 @@ action:
                       color_temp_kelvin: "{{ ct_day_final }}"
                       transition: "{{ transition_val }}"
 
+
               # Lux high → turn OFF
               - conditions:
                   - condition: numeric_state
@@ -480,19 +481,30 @@ action:
                       transition: "{{ transition_val }}"
 
       ###########################################################################
-      # ADAPTATION WHILE LIGHTS ARE ALREADY ON
+      # PERIODIC DAYTIME ADAPTATION (time tick / disable re-eval)
       ###########################################################################
       - conditions:
           - "{{ states(disable_entity_id) == 'on' }}"
-          - condition: state
-            entity_id: !input lights
-            state: "on"
+          - "{{ trigger.id in ['disable_on', 'time_tick'] }}"
         sequence:
           - choose:
 
-              # DAYTIME ADAPTATION
+              # DAYTIME — LUX HIGH → TURN OFF
               - conditions:
                   - "{{ not is_night }}"
+                  - condition: numeric_state
+                    entity_id: !input lux_sensor
+                    above: !input lux_high
+                sequence:
+                  - service: light.turn_off
+                    entity_id: !input lights
+                    data:
+                      transition: "{{ transition_val }}"
+
+              # DAYTIME — ADAPT / TURN ON WHEN NEEDED
+              - conditions:
+                  - "{{ not is_night }}"
+                  - "{{ (first_light and is_state(first_light, 'on')) or (states(lux_entity) | float(0)) <= lux_low_val }}"
                 sequence:
                   - variables:
                       lux: "{{ states(lux_entity) | float }}"
@@ -523,15 +535,4 @@ action:
                     data:
                       brightness: "{{ brightness_final }}"
                       color_temp_kelvin: "{{ ct_day_final }}"
-                      transition: "{{ transition_val }}"
-
-              # NIGHT ENFORCEMENT (if night mode enabled)
-              - conditions:
-                  - "{{ is_night and enable_night_mode_val }}"
-                sequence:
-                  - service: light.turn_on
-                    entity_id: !input lights
-                    data:
-                      brightness: "{{ night_brightness_val }}"
-                      color_temp_kelvin: "{{ ct_night_val }}"
                       transition: "{{ transition_val }}"
