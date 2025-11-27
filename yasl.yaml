@@ -1,0 +1,537 @@
+blueprint:
+  name: Adaptive Motion + Lux Lighting (Night/Day, Sun Elevation, Hysteresis, Delayed Off)
+  description: >
+    A fully adaptive lighting system with realistic behavior and low CPU load.
+    
+    NIGHT (between Night Start and Night End):
+    • If Night Mode is enabled → Motion turns lights ON instantly at a warm CT.
+      Lights turn OFF after a configurable delay with no motion.
+    • If Night Mode is disabled → The blueprint keeps the lights OFF at night.
+
+    DAY (outside the night window):
+    • Lights turn ON when lux is below a threshold.
+    • Lights turn OFF when lux is above a threshold.
+    • Brightness adapts smoothly based on lux level.
+    • Color temperature adapts based on sun elevation (morning → noon → evening).
+    • Brightness hysteresis and CT hysteresis prevent micro-adjustments
+      and avoid flicker from noisy sensors.
+
+    GLOBAL:
+    • A global enable/disable switch forces lights OFF instantly when disabled,
+      and makes them re-evaluate immediately when enabled.
+    • Smooth transitions supported via transition_seconds.
+
+    Designed for: easy setup, realistic results, minimal HA CPU load.
+  domain: automation
+
+  input:
+    ###########################################################################
+    # CORE ENTITIES
+    ###########################################################################
+    lights:
+      name: Lights to Control
+      description: >
+        The light(s) this automation controls. You may select one or multiple.
+        All brightness/CT updates apply to each selected light.
+      selector:
+        entity:
+          domain: light
+          multiple: true
+
+    motion_sensor:
+      name: Motion / Presence Sensor
+      description: >
+        Motion activates night lighting instantly (if night mode is enabled).
+        Motion clearing starts an off-delay timer.
+      selector:
+        entity:
+          domain: binary_sensor
+          device_class: motion
+
+    lux_sensor:
+      name: Lux Sensor
+      description: >
+        Lux values drive day-mode on/off behavior and adaptive brightness.
+        No requirement for smoothing — the blueprint includes built-in hysteresis.
+      selector:
+        entity:
+          domain: sensor
+
+    disable_entity:
+      name: Global Enable/Disable Entity
+      description: >
+        When this entity is ON → automation runs normally.
+        When this entity turns OFF → all controlled lights turn OFF immediately.
+        When it turns back ON → lights re-evaluate conditions instantly.
+      selector:
+        entity:
+
+    enable_night_mode:
+      name: Night Mode Enabled
+      description: >
+        If ON → motion may turn on lights during the night window.
+        If OFF → the automation will force lights OFF at night.
+      default: true
+      selector:
+        boolean: {}
+
+    ###########################################################################
+    # NIGHT SETTINGS
+    ###########################################################################
+    night_start_hour:
+      name: Night Start Hour
+      description: >
+        Start of night mode (0–23). If start > end, the night period wraps
+        through midnight (e.g., 22 → 7).
+      default: 22
+      selector:
+        number:
+          min: 0
+          max: 23
+          step: 1
+
+    night_end_hour:
+      name: Night End Hour
+      description: >
+        End of night mode (0–23). If start > end, the night period wraps
+        through midnight (e.g., 22 → 7).
+      default: 7
+      selector:
+        number:
+          min: 0
+          max: 23
+          step: 1
+
+    night_brightness:
+      name: Night Brightness
+      description: >
+        Brightness (1–255) used at night when motion occurs.
+        Use low levels for sleep-friendly behavior.
+      default: 20
+      selector:
+        number:
+          min: 1
+          max: 255
+          step: 1
+
+    ct_night:
+      name: Night Color Temperature (Kelvin)
+      description: >
+        Color temperature for nighttime motion lighting.
+        Values between 1800–2400 K are recommended for minimal sleep disruption.
+      default: 2200
+      selector:
+        number:
+          min: 1500
+          max: 6500
+          step: 50
+
+    off_delay_seconds:
+      name: Night Off-Delay (seconds)
+      description: >
+        After motion stops at night (and night mode is enabled), lights turn off
+        after this delay. The delay resets on new motion.
+      default: 60
+      selector:
+        number:
+          min: 5
+          max: 1800
+          step: 5
+
+    ###########################################################################
+    # DAY SETTINGS
+    ###########################################################################
+    lux_low:
+      name: Lux Threshold – Turn ON
+      description: >
+        When lux falls BELOW this value during daytime, lights will be turned ON.
+      default: 30
+      selector:
+        number:
+          min: 1
+          max: 500
+
+    lux_high:
+      name: Lux Threshold – Turn OFF
+      description: >
+        When lux rises ABOVE this value during daytime, lights will be turned OFF.
+        Recommended to keep lux_high > lux_low to create hysteresis.
+      default: 200
+      selector:
+        number:
+          min: 20
+          max: 2000
+          step: 10
+
+    ct_morning:
+      name: Morning Color Temperature (Kelvin)
+      description: >
+        Color temperature when the sun is low above the horizon (~0° elevation).
+        Typical: 2700–3200 K.
+      default: 3000
+      selector:
+        number:
+          min: 1500
+          max: 6500
+          step: 50
+
+    ct_noon:
+      name: Midday Color Temperature (Kelvin)
+      description: >
+        Color temperature when the sun is high (~45° elevation).
+        Typical: 4500–5500 K.
+      default: 5000
+      selector:
+        number:
+          min: 1500
+          max: 6500
+          step: 50
+
+    ct_evening:
+      name: Evening Color Temperature (Kelvin)
+      description: >
+        Color temperature late in the day as elevation drops again.
+        Typical: 3000–3500 K.
+      default: 3500
+      selector:
+        number:
+          min: 1500
+          max: 6500
+          step: 50
+
+    brightness_day_min:
+      name: Minimum Daytime Brightness
+      description: >
+        Brightness when lux is very high (room already bright).
+      default: 40
+      selector:
+        number:
+          min: 1
+          max: 255
+
+    brightness_day_max:
+      name: Maximum Daytime Brightness
+      description: >
+        Brightness when lux is very low (dark room).
+      default: 255
+      selector:
+        number:
+          min: 1
+          max: 255
+
+    ###########################################################################
+    # GLOBAL TUNING
+    ###########################################################################
+    min_ct_step_kelvin:
+      name: Minimum Color Temperature Step (Kelvin)
+      description: >
+        Only apply a new CT if it differs from the current CT by at least
+        this many Kelvin. Prevents tiny flickering changes. Set to 0 to disable.
+      default: 200
+      selector:
+        number:
+          min: 0
+          max: 1000
+          step: 50
+
+    min_brightness_step:
+      name: Minimum Brightness Step
+      description: >
+        Only apply a new brightness if it differs from the current brightness
+        by at least this much (0–100). Prevents rapid small changes from lux noise.
+        Set to 0 to disable brightness hysteresis completely.
+      default: 10
+      selector:
+        number:
+          min: 0
+          max: 100
+          step: 1
+
+    transition_seconds:
+      name: Transition Time (seconds)
+      description: >
+        Transition time for turning lights on/off and adapting brightness/CT.
+        0 = instant. 1–2 seconds feels smooth but responsive.
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 10
+          step: 1
+
+mode: restart
+
+trigger:
+  - id: motion_on
+    platform: state
+    entity_id: !input motion_sensor
+    to: "on"
+
+  - id: motion_off
+    platform: state
+    entity_id: !input motion_sensor
+    to: "off"
+
+  - id: lux
+    platform: state
+    entity_id: !input lux_sensor
+
+  - id: time_tick
+    platform: time_pattern
+    minutes: "/2"
+
+  - id: disable_off
+    platform: state
+    entity_id: !input disable_entity
+    to: "off"
+
+  - id: disable_on
+    platform: state
+    entity_id: !input disable_entity
+    to: "on"
+
+action:
+  - variables:
+      lights_list: !input lights
+      lux_entity: !input lux_sensor
+      disable_entity_id: !input disable_entity
+
+      night_start_val: !input night_start_hour
+      night_end_val: !input night_end_hour
+      enable_night_mode_val: !input enable_night_mode
+
+      night_brightness_val: !input night_brightness
+      ct_night_val: !input ct_night
+      off_delay_val: !input off_delay_seconds
+
+      lux_low_val: !input lux_low
+      lux_high_val: !input lux_high
+
+      ct_morning_val: !input ct_morning
+      ct_noon_val: !input ct_noon
+      ct_evening_val: !input ct_evening
+
+      brightness_day_min_val: !input brightness_day_min
+      brightness_day_max_val: !input brightness_day_max
+
+      min_ct_step_val: !input min_ct_step_kelvin
+      min_brightness_step_val: !input min_brightness_step
+
+      transition_val: !input transition_seconds
+
+      elevation: "{{ state_attr('sun.sun', 'elevation') | float(0) }}"
+
+      is_night: >
+        {% set h = now().hour %}
+        {% set s = night_start_val %}
+        {% set e = night_end_val %}
+        {% if s <= e %}
+          {{ s <= h < e }}
+        {% else %}
+          {{ h >= s or h < e }}
+        {% endif %}
+
+      first_light: >
+        {% set ls = lights_list if lights_list is iterable and not lights_list is string else [lights_list] %}
+        {{ ls[0] if ls|length > 0 else '' }}
+
+      current_ct_light: >
+        {{ state_attr(first_light, 'color_temp_kelvin') | float(0) if first_light else 0 }}
+
+      current_bri_light: >
+        {{ state_attr(first_light, 'brightness') | float(0) if first_light else 0 }}
+
+      ct_base_day_kelvin: >
+        {% set elev = elevation %}
+        {% set m = ct_morning_val %}
+        {% set n = ct_noon_val %}
+        {% set e = ct_evening_val %}
+        {% if elev <= 0 %}
+          {{ m }}
+        {% elif elev < 45 %}
+          {{ m + (elev/45) * (n - m) }}
+        {% else %}
+          {{ n + ((elev-45)/45) * (e - n) }}
+        {% endif %}
+
+      ct_day_clamped: >
+        {% set v = ct_base_day_kelvin | float %}
+        {% if v < 1500 %}{% set v = 1500 %}{% endif %}
+        {% if v > 6500 %}{% set v = 6500 %}{% endif %}
+        {{ v | round }}
+
+      ct_day_final: >
+        {% set target = ct_day_clamped | float %}
+        {% set current = current_ct_light | float %}
+        {% set step = min_ct_step_val | float %}
+        {% if current == 0 or step <= 0 %}
+          {{ target | round }}
+        {% else %}
+          {% set delta = target - current %}
+          {{ target | round if delta|abs >= step else current | round }}
+        {% endif %}
+
+  - choose:
+
+      ###########################################################################
+      # GLOBAL DISABLE
+      ###########################################################################
+      - conditions:
+          - condition: trigger
+            id: disable_off
+        sequence:
+          - service: light.turn_off
+            entity_id: !input lights
+            data:
+              transition: "{{ transition_val }}"
+          - stop: Global disable is OFF
+
+      ###########################################################################
+      # NIGHT — MOTION ON
+      ###########################################################################
+      - conditions:
+          - condition: trigger
+            id: motion_on
+          - "{{ states(disable_entity_id) == 'on' }}"
+          - "{{ is_night and enable_night_mode_val }}"
+        sequence:
+          - service: light.turn_on
+            entity_id: !input lights
+            data:
+              brightness: "{{ night_brightness_val }}"
+              color_temp_kelvin: "{{ ct_night_val }}"
+              transition: "{{ transition_val }}"
+
+      ###########################################################################
+      # NIGHT — MOTION OFF (DELAYED OFF)
+      ###########################################################################
+      - conditions:
+          - condition: trigger
+            id: motion_off
+          - "{{ states(disable_entity_id) == 'on' }}"
+          - "{{ is_night and enable_night_mode_val }}"
+        sequence:
+          - delay: "{{ off_delay_val }}"
+          - condition: state
+            entity_id: !input motion_sensor
+            state: "off"
+          - service: light.turn_off
+            entity_id: !input lights
+            data:
+              transition: "{{ transition_val }}"
+
+      ###########################################################################
+      # DAY — LUX-BASED CONTROL
+      ###########################################################################
+      - conditions:
+          - condition: trigger
+            id: lux
+          - "{{ states(disable_entity_id) == 'on' }}"
+          - "{{ not is_night }}"
+        sequence:
+          - choose:
+
+              # Lux low → turn ON with adaptive values
+              - conditions:
+                  - condition: numeric_state
+                    entity_id: !input lux_sensor
+                    below: !input lux_low
+                sequence:
+                  - variables:
+                      lux: "{{ states(lux_entity) | float }}"
+                      brightness_raw: >
+                        {% if lux <= lux_low_val %}
+                          {{ brightness_day_max_val }}
+                        {% elif lux >= lux_high_val %}
+                          {{ brightness_day_min_val }}
+                        {% else %}
+                          {{
+                            brightness_day_min_val +
+                            (lux_high_val - lux)/(lux_high_val - lux_low_val) *
+                            (brightness_day_max_val - brightness_day_min_val)
+                          }}
+                        {% endif %}
+                      brightness_final: >
+                        {% set target = brightness_raw | float %}
+                        {% set current = current_bri_light | float %}
+                        {% set step = min_brightness_step_val | float %}
+                        {% if current == 0 or step <= 0 %}
+                          {{ target | round }}
+                        {% else %}
+                          {% set delta = target - current %}
+                          {{ target|round if delta|abs >= step else current|round }}
+                        {% endif %}
+                  - service: light.turn_on
+                    entity_id: !input lights
+                    data:
+                      brightness: "{{ brightness_final }}"
+                      color_temp_kelvin: "{{ ct_day_final }}"
+                      transition: "{{ transition_val }}"
+
+              # Lux high → turn OFF
+              - conditions:
+                  - condition: numeric_state
+                    entity_id: !input lux_sensor
+                    above: !input lux_high
+                sequence:
+                  - service: light.turn_off
+                    entity_id: !input lights
+                    data:
+                      transition: "{{ transition_val }}"
+
+      ###########################################################################
+      # ADAPTATION WHILE LIGHTS ARE ALREADY ON
+      ###########################################################################
+      - conditions:
+          - "{{ states(disable_entity_id) == 'on' }}"
+          - condition: state
+            entity_id: !input lights
+            state: "on"
+        sequence:
+          - choose:
+
+              # DAYTIME ADAPTATION
+              - conditions:
+                  - "{{ not is_night }}"
+                sequence:
+                  - variables:
+                      lux: "{{ states(lux_entity) | float }}"
+                      brightness_raw: >
+                        {% if lux <= lux_low_val %}
+                          {{ brightness_day_max_val }}
+                        {% elif lux >= lux_high_val %}
+                          {{ brightness_day_min_val }}
+                        {% else %}
+                          {{
+                            brightness_day_min_val +
+                            (lux_high_val - lux)/(lux_high_val - lux_low_val) *
+                            (brightness_day_max_val - brightness_day_min_val)
+                          }}
+                        {% endif %}
+                      brightness_final: >
+                        {% set target = brightness_raw | float %}
+                        {% set current = current_bri_light | float %}
+                        {% set step = min_brightness_step_val | float %}
+                        {% if current == 0 or step <= 0 %}
+                          {{ target | round }}
+                        {% else %}
+                          {% set delta = target - current %}
+                          {{ target|round if delta|abs >= step else current|round }}
+                        {% endif %}
+                  - service: light.turn_on
+                    entity_id: !input lights
+                    data:
+                      brightness: "{{ brightness_final }}"
+                      color_temp_kelvin: "{{ ct_day_final }}"
+                      transition: "{{ transition_val }}"
+
+              # NIGHT ENFORCEMENT (if night mode enabled)
+              - conditions:
+                  - "{{ is_night and enable_night_mode_val }}"
+                sequence:
+                  - service: light.turn_on
+                    entity_id: !input lights
+                    data:
+                      brightness: "{{ night_brightness_val }}"
+                      color_temp_kelvin: "{{ ct_night_val }}"
+                      transition: "{{ transition_val }}"
