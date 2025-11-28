@@ -65,7 +65,8 @@ All logic paths live inside one `choose` block, so exactly one branch executes p
 - Inner `choose` block (first matching branch executes):
   1. **Night enforcement** – If `is_night` and any controlled light is on, turn them off. This ensures that when the schedule enters the night window the lights start from an off state, regardless of night-mode setting.
   2. **Daytime lux high** – If it is daytime and lux is above `lux_high`, turn lights off (useful when re-enabled or when lux didn’t trigger by itself).
-  3. **Daytime adapt/turn-on** – If it is daytime AND (`first_light` is already on OR lux is at/below `lux_low`), recompute adaptive brightness/CT and call `light.turn_on`. This keeps daylight scenes in sync even when the lux sensor hasn’t updated recently.
+  3. **Daytime backup turn-on** – If it is daytime, all lights are currently off, and lux is below `lux_low`, compute adaptive brightness/CT and turn the group on. This covers scenarios where the lux sensor hasn’t emitted a fresh state change but conditions are already dark.
+  4. **Daytime adapt active lights** – If it is daytime and any controlled light is on, recompute adaptive brightness/CT and call `light.turn_on`. Lux-based turn-on behavior still comes from the dedicated `lux` trigger path; this branch just keeps existing daytime scenes synced.
 
 ### 6. Implicit Global Enable (`disable_on`)
 

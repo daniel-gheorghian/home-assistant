@@ -240,7 +240,7 @@ blueprint:
         Only apply a new brightness if it differs from the current brightness
         by at least this much (0–100). Prevents rapid small changes from lux noise.
         Set to 0 to disable brightness hysteresis completely.
-      default: 10
+      default: 20
       selector:
         number:
           min: 0
@@ -514,10 +514,55 @@ action:
                     data:
                       transition: "{{ transition_val }}"
 
-              # DAYTIME — ADAPT / TURN ON WHEN NEEDED
+              # DAYTIME — TURN ON IF OFF AND LUX IS LOW (backup)
               - conditions:
                   - "{{ not is_night }}"
-                  - "{{ (first_light and is_state(first_light, 'on')) or (states(lux_entity) | float(0)) <= lux_low_val }}"
+                  - condition: template
+                    value_template: >
+                      {% set ls = lights_list if lights_list is iterable and not lights_list is string else [lights_list] %}
+                      {{ expand(ls)|selectattr('state', 'eq', 'on')|list|length == 0 }}
+                  - condition: numeric_state
+                    entity_id: !input lux_sensor
+                    below: !input lux_low
+                sequence:
+                  - variables:
+                      lux: "{{ states(lux_entity) | float }}"
+                      brightness_raw: >
+                        {% if lux <= lux_low_val %}
+                          {{ brightness_day_max_val }}
+                        {% elif lux >= lux_high_val %}
+                          {{ brightness_day_min_val }}
+                        {% else %}
+                          {{
+                            brightness_day_min_val +
+                            (lux_high_val - lux)/(lux_high_val - lux_low_val) *
+                            (brightness_day_max_val - brightness_day_min_val)
+                          }}
+                        {% endif %}
+                      brightness_final: >
+                        {% set target = brightness_raw | float %}
+                        {% set current = current_bri_light | float %}
+                        {% set step = min_brightness_step_val | float %}
+                        {% if current == 0 or step <= 0 %}
+                          {{ target | round }}
+                        {% else %}
+                          {% set delta = target - current %}
+                          {{ target|round if delta|abs >= step else current|round }}
+                        {% endif %}
+                  - service: light.turn_on
+                    entity_id: !input lights
+                    data:
+                      brightness: "{{ brightness_final }}"
+                      color_temp_kelvin: "{{ ct_day_final }}"
+                      transition: "{{ transition_val }}"
+
+              # DAYTIME — ADAPT ACTIVE LIGHTS
+              - conditions:
+                  - "{{ not is_night }}"
+                  - condition: template
+                    value_template: >
+                      {% set ls = lights_list if lights_list is iterable and not lights_list is string else [lights_list] %}
+                      {{ expand(ls)|selectattr('state', 'eq', 'on')|list|length > 0 }}
                 sequence:
                   - variables:
                       lux: "{{ states(lux_entity) | float }}"
