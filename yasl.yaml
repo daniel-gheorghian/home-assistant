@@ -489,6 +489,19 @@ action:
         sequence:
           - choose:
 
+              # NIGHT — FORCE LIGHTS OFF AT NIGHT START
+              - conditions:
+                  - "{{ is_night }}"
+                  - condition: template
+                    value_template: >
+                      {% set ls = lights_list if lights_list is iterable and not lights_list is string else [lights_list] %}
+                      {{ expand(ls)|selectattr('state', 'eq', 'on')|list|length > 0 }}
+                sequence:
+                  - service: light.turn_off
+                    entity_id: !input lights
+                    data:
+                      transition: "{{ transition_val }}"
+
               # DAYTIME — LUX HIGH → TURN OFF
               - conditions:
                   - "{{ not is_night }}"
