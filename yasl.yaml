@@ -388,7 +388,6 @@ action:
 
       lux: "{{ states(lux_entity) | float }}"
       dawn_ramp_up_min: !input dawn_ramp_transition_min
-             min(0,(night_end_val * 60 + dawn_ramp_up_min ) - minutes(now))
 
       brightness_percent: >
         {% set now_ts = now() %}
