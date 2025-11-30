@@ -19,7 +19,6 @@ blueprint:
     GLOBAL:
     • A global enable/disable switch forces lights OFF instantly when disabled,
       and makes them re-evaluate immediately when enabled.
-    • Smooth transitions supported via transition_seconds.
 
     Designed for: easy setup, realistic results, minimal HA CPU load.
   domain: automation
@@ -262,18 +261,6 @@ blueprint:
           max: 100
           step: 1
 
-    transition_seconds:
-      name: Transition Time (seconds)
-      description: >
-        Transition time for turning lights on/off and adapting brightness/CT.
-        0 = instant. 1–2 seconds feels smooth but responsive.
-      default: 0
-      selector:
-        number:
-          min: 0
-          max: 10
-          step: 1
-
 mode: restart
 
 trigger:
@@ -430,8 +417,6 @@ action:
         sequence:
           - service: light.turn_off
             entity_id: !input lights
-#            data:
-#              transition: "{{ transition_val }}"
           - stop: Global disable is OFF
 
       ###########################################################################
@@ -448,7 +433,6 @@ action:
             data:
               brightness: "{{ night_brightness_val }}"
               color_temp_kelvin: "{{ ct_night_val }}"
-#              transition: "{{ transition_val }}"
 
       ###########################################################################
       # NIGHT — MOTION OFF (DELAYED OFF)
@@ -465,8 +449,6 @@ action:
             state: "off"
           - service: light.turn_off
             entity_id: !input lights
-#            data:
-#              transition: "{{ transition_val }}"
 
       ###########################################################################
       # DAY — LUX-BASED CONTROL
@@ -490,8 +472,6 @@ action:
                     data:
                       brightness: "{{ brightness_final }}"
                       color_temp_kelvin: "{{ ct_day_final }}"
-#                      transition: "{{ transition_val }}"
-
 
               # Lux high → turn OFF
               - conditions:
@@ -501,8 +481,6 @@ action:
                 sequence:
                   - service: light.turn_off
                     entity_id: !input lights
-#                    data:
-#                      transition: "{{ transition_val }}"
 
       ###########################################################################
       # PERIODIC DAYTIME ADAPTATION (time tick / disable re-eval)
@@ -523,8 +501,6 @@ action:
                 sequence:
                   - service: light.turn_off
                     entity_id: !input lights
-#                    data:
-#                      transition: "{{ transition_val }}"
 
               # DAYTIME — LUX HIGH → TURN OFF
               - conditions:
@@ -535,8 +511,6 @@ action:
                 sequence:
                   - service: light.turn_off
                     entity_id: !input lights
-#                    data:
-#                      transition: "{{ transition_val }}"
 
               # DAYTIME — TURN ON IF OFF AND LUX IS LOW (backup)
               - conditions:
@@ -554,7 +528,6 @@ action:
                     data:
                       brightness: "{{ brightness_final }}"
                       color_temp_kelvin: "{{ ct_day_final }}"
-#                      transition: "{{ transition_val }}"
 
               # DAYTIME — ADAPT ACTIVE LIGHTS
               - conditions:
@@ -569,4 +542,3 @@ action:
                     data:
                       brightness: "{{ brightness_final }}"
                       color_temp_kelvin: "{{ ct_day_final }}"
-#                      transition: "{{ transition_val }}"
