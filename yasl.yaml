@@ -139,6 +139,21 @@ blueprint:
           step: 5
 
     ###########################################################################
+    # DAWN RAMP (OPTIONAL)
+    ###########################################################################
+    dawn_ramp_transition_min:
+      name: Dawn Ramp Transition (minutes)
+      description: >
+        Transition length for the dawn ramp service call fired at Night End.
+        Set to 0 for instant change or large values (e.g., 10) for a slow fade.
+      default: 55
+      selector:
+        number:
+          min: 0
+          max: 120
+          step: 11
+
+    ###########################################################################
     # DAY SETTINGS
     ###########################################################################
     lux_low:
@@ -278,7 +293,7 @@ trigger:
 
   - id: time_tick
     platform: time_pattern
-    minutes: "/2"
+    minutes: "/5"
 
   - id: disable_off
     platform: state
@@ -371,6 +386,40 @@ action:
           {{ target | round if delta|abs >= step else current | round }}
         {% endif %}
 
+      lux: "{{ states(lux_entity) | float }}"
+      dawn_ramp_up_min: !input dawn_ramp_transition_min
+             min(0,(night_end_val * 60 + dawn_ramp_up_min ) - minutes(now))
+
+      brightness_percent: >
+        {% set now_ts = now() %}
+        {% set current_hour = now_ts.hour %}
+        {% set current_minute = now_ts.minute %}
+        {% set current_ts_min = current_hour * 60 + current_minute %}
+        {% set current_percentage = (current_ts_min / (night_end_val * 60 + dawn_ramp_up_min )) | round(2) %}
+        {{ min([current_percentage, 1.0]) }}
+
+      brightness_raw: >
+        {% if lux <= lux_low_val %}
+          {{ brightness_day_max_val }}
+        {% elif lux >= lux_high_val %}
+          {{ brightness_day_min_val }}
+        {% else %}
+          {{
+            brightness_day_min_val +
+            (lux_high_val - lux)/(lux_high_val - lux_low_val) *
+            (brightness_day_max_val - brightness_day_min_val)
+          }}
+        {% endif %}
+      brightness_final: >
+        {% set target = (brightness_raw * brightness_percent) | float %}
+        {% set current = current_bri_light | float %}
+        {% set step = min_brightness_step_val | float %}
+        {% if current == 0 or step <= 0 %}
+          {{ target | round }}
+        {% else %}
+          {% set delta = target - current %}
+          {{ target|round if delta|abs >= step else current|round }}
+        {% endif %}
   - choose:
 
       ###########################################################################
@@ -382,8 +431,8 @@ action:
         sequence:
           - service: light.turn_off
             entity_id: !input lights
-            data:
-              transition: "{{ transition_val }}"
+#            data:
+#              transition: "{{ transition_val }}"
           - stop: Global disable is OFF
 
       ###########################################################################
@@ -400,7 +449,7 @@ action:
             data:
               brightness: "{{ night_brightness_val }}"
               color_temp_kelvin: "{{ ct_night_val }}"
-              transition: "{{ transition_val }}"
+#              transition: "{{ transition_val }}"
 
       ###########################################################################
       # NIGHT — MOTION OFF (DELAYED OFF)
@@ -417,8 +466,8 @@ action:
             state: "off"
           - service: light.turn_off
             entity_id: !input lights
-            data:
-              transition: "{{ transition_val }}"
+#            data:
+#              transition: "{{ transition_val }}"
 
       ###########################################################################
       # DAY — LUX-BASED CONTROL
@@ -437,36 +486,12 @@ action:
                     entity_id: !input lux_sensor
                     below: !input lux_low
                 sequence:
-                  - variables:
-                      lux: "{{ states(lux_entity) | float }}"
-                      brightness_raw: >
-                        {% if lux <= lux_low_val %}
-                          {{ brightness_day_max_val }}
-                        {% elif lux >= lux_high_val %}
-                          {{ brightness_day_min_val }}
-                        {% else %}
-                          {{
-                            brightness_day_min_val +
-                            (lux_high_val - lux)/(lux_high_val - lux_low_val) *
-                            (brightness_day_max_val - brightness_day_min_val)
-                          }}
-                        {% endif %}
-                      brightness_final: >
-                        {% set target = brightness_raw | float %}
-                        {% set current = current_bri_light | float %}
-                        {% set step = min_brightness_step_val | float %}
-                        {% if current == 0 or step <= 0 %}
-                          {{ target | round }}
-                        {% else %}
-                          {% set delta = target - current %}
-                          {{ target|round if delta|abs >= step else current|round }}
-                        {% endif %}
                   - service: light.turn_on
                     entity_id: !input lights
                     data:
                       brightness: "{{ brightness_final }}"
                       color_temp_kelvin: "{{ ct_day_final }}"
-                      transition: "{{ transition_val }}"
+#                      transition: "{{ transition_val }}"
 
 
               # Lux high → turn OFF
@@ -477,8 +502,8 @@ action:
                 sequence:
                   - service: light.turn_off
                     entity_id: !input lights
-                    data:
-                      transition: "{{ transition_val }}"
+#                    data:
+#                      transition: "{{ transition_val }}"
 
       ###########################################################################
       # PERIODIC DAYTIME ADAPTATION (time tick / disable re-eval)
@@ -499,8 +524,8 @@ action:
                 sequence:
                   - service: light.turn_off
                     entity_id: !input lights
-                    data:
-                      transition: "{{ transition_val }}"
+#                    data:
+#                      transition: "{{ transition_val }}"
 
               # DAYTIME — LUX HIGH → TURN OFF
               - conditions:
@@ -511,8 +536,8 @@ action:
                 sequence:
                   - service: light.turn_off
                     entity_id: !input lights
-                    data:
-                      transition: "{{ transition_val }}"
+#                    data:
+#                      transition: "{{ transition_val }}"
 
               # DAYTIME — TURN ON IF OFF AND LUX IS LOW (backup)
               - conditions:
@@ -525,36 +550,12 @@ action:
                     entity_id: !input lux_sensor
                     below: !input lux_low
                 sequence:
-                  - variables:
-                      lux: "{{ states(lux_entity) | float }}"
-                      brightness_raw: >
-                        {% if lux <= lux_low_val %}
-                          {{ brightness_day_max_val }}
-                        {% elif lux >= lux_high_val %}
-                          {{ brightness_day_min_val }}
-                        {% else %}
-                          {{
-                            brightness_day_min_val +
-                            (lux_high_val - lux)/(lux_high_val - lux_low_val) *
-                            (brightness_day_max_val - brightness_day_min_val)
-                          }}
-                        {% endif %}
-                      brightness_final: >
-                        {% set target = brightness_raw | float %}
-                        {% set current = current_bri_light | float %}
-                        {% set step = min_brightness_step_val | float %}
-                        {% if current == 0 or step <= 0 %}
-                          {{ target | round }}
-                        {% else %}
-                          {% set delta = target - current %}
-                          {{ target|round if delta|abs >= step else current|round }}
-                        {% endif %}
                   - service: light.turn_on
                     entity_id: !input lights
                     data:
                       brightness: "{{ brightness_final }}"
                       color_temp_kelvin: "{{ ct_day_final }}"
-                      transition: "{{ transition_val }}"
+#                      transition: "{{ transition_val }}"
 
               # DAYTIME — ADAPT ACTIVE LIGHTS
               - conditions:
@@ -564,33 +565,9 @@ action:
                       {% set ls = lights_list if lights_list is iterable and not lights_list is string else [lights_list] %}
                       {{ expand(ls)|selectattr('state', 'eq', 'on')|list|length > 0 }}
                 sequence:
-                  - variables:
-                      lux: "{{ states(lux_entity) | float }}"
-                      brightness_raw: >
-                        {% if lux <= lux_low_val %}
-                          {{ brightness_day_max_val }}
-                        {% elif lux >= lux_high_val %}
-                          {{ brightness_day_min_val }}
-                        {% else %}
-                          {{
-                            brightness_day_min_val +
-                            (lux_high_val - lux)/(lux_high_val - lux_low_val) *
-                            (brightness_day_max_val - brightness_day_min_val)
-                          }}
-                        {% endif %}
-                      brightness_final: >
-                        {% set target = brightness_raw | float %}
-                        {% set current = current_bri_light | float %}
-                        {% set step = min_brightness_step_val | float %}
-                        {% if current == 0 or step <= 0 %}
-                          {{ target | round }}
-                        {% else %}
-                          {% set delta = target - current %}
-                          {{ target|round if delta|abs >= step else current|round }}
-                        {% endif %}
                   - service: light.turn_on
                     entity_id: !input lights
                     data:
                       brightness: "{{ brightness_final }}"
                       color_temp_kelvin: "{{ ct_day_final }}"
-                      transition: "{{ transition_val }}"
+#                      transition: "{{ transition_val }}"

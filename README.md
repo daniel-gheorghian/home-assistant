@@ -10,6 +10,7 @@ This document explains how `yasl.yaml` drives lights based on motion, lux, night
 - **disable_entity** – Master switch; when `off`, the automation shuts down immediately.
 - **enable_night_mode** – Boolean that allows/disallows motion-driven night lighting.
 - **Night/Day tuning** – Night start/end hours, brightness, color temperatures, and lux thresholds.
+- **Dawn ramp** – Optional ramp enable plus a dedicated transition length; when enabled the automation fires a single fade at `night_end_hour` toward the computed daytime brightness/CT.
 - **Global tuning** – Brightness/CT hysteresis and transition time.
 
 ## Derived Variables
@@ -63,10 +64,11 @@ All logic paths live inside one `choose` block, so exactly one branch executes p
 
 - Runs every 2 minutes and whenever the automation is re-enabled, provided the disable entity is currently `on`.
 - Inner `choose` block (first matching branch executes):
-  1. **Night enforcement** – If `is_night` and any controlled light is on, turn them off. This ensures that when the schedule enters the night window the lights start from an off state, regardless of night-mode setting.
-  2. **Daytime lux high** – If it is daytime and lux is above `lux_high`, turn lights off (useful when re-enabled or when lux didn’t trigger by itself).
-  3. **Daytime backup turn-on** – If it is daytime, all lights are currently off, and lux is below `lux_low`, compute adaptive brightness/CT and turn the group on. This covers scenarios where the lux sensor hasn’t emitted a fresh state change but conditions are already dark.
-  4. **Daytime adapt active lights** – If it is daytime and any controlled light is on, recompute adaptive brightness/CT and call `light.turn_on`. Lux-based turn-on behavior still comes from the dedicated `lux` trigger path; this branch just keeps existing daytime scenes synced.
+  1. **Dawn ramp-up (optional)** – When the time tick reaches `night_end_hour`, the automation triggers one `light.turn_on` using the custom dawn transition and the same daytime brightness/CT targets that would otherwise be chosen by the lux logic. The light hardware performs the entire fade.
+  2. **Night enforcement** – If `is_night` and any controlled light is on (outside the dawn ramp window), turn them off so the night schedule starts from a dark state.
+  3. **Daytime lux high** – If it is daytime and lux is above `lux_high`, turn lights off (useful when re-enabled or when lux didn’t trigger by itself).
+  4. **Daytime backup turn-on** – If it is daytime, all lights are currently off, and lux is below `lux_low`, compute adaptive brightness/CT and turn the group on. This covers scenarios where the lux sensor hasn’t emitted a fresh state change but conditions are already dark.
+  5. **Daytime adapt active lights** – If it is daytime and any controlled light is on, recompute adaptive brightness/CT and call `light.turn_on`. Lux-based turn-on behavior still comes from the dedicated `lux` trigger path; this branch just keeps existing daytime scenes synced.
 
 ### 6. Implicit Global Enable (`disable_on`)
 
