@@ -379,7 +379,9 @@ action:
         {% set current_hour = now_ts.hour %}
         {% set current_minute = now_ts.minute %}
         {% set current_ts_min = current_hour * 60 + current_minute %}
-        {% set current_percentage = (current_ts_min / (night_end_val * 60 + dawn_ramp_up_min )) | round(2) %}
+        {% set target_ts_min = night_end_val * 60 + dawn_ramp_up_min %}
+        {% set current_percentage = ((target_ts_min - current_ts_min)/dawn_ramp_up_min) | round(2) %}
+        {% set current_percentage =  1.0 - current_percentage %}
         {{ min([current_percentage, 1.0]) }}
 
       brightness_raw: >
